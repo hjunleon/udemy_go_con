@@ -20,9 +20,11 @@ var fetch_cnt int64 = 1
 
 var fetched map[string]bool
 var fetched_mu sync.RWMutex
-var is_all_fetched sync.Mutex
-var c = sync.NewCond(&is_all_fetched)
-var fetch_ch = make(chan url_msg)
+//  Fetch add equivalent: ori = atomic.AddUint32(&avalue, 1) - 1
+// runtime.GOMAXPROCS(4)
+// var is_all_fetched sync.Mutex
+// var c = sync.NewCond(&is_all_fetched)
+// var fetch_ch = make(chan url_msg)
 
 // Crawl uses findLinks to recursively crawl
 // pages starting with url, to a maximum of depth.
@@ -39,19 +41,24 @@ func Crawl(url string, depth int) {
 		return
 	}
 
-	atomic.AddInt64(&fetch_cnt, int64(len(urls)))
 	fmt.Println("fetch_cnt: ", fetch_cnt)
 	fmt.Printf("found: %s\n", url)
 	// fetched_mu.RLock()
 
 	// fetched_mu.RUnlock()
 	for _, u := range urls {
-		if !fetched[u] {
+		fetched_mu.RLock()
+		isFetched := fetched[u]
+		fetched_mu.RUnlock()
+		// can't defer RUnlock here cuz the spawned go routines would try to acquire and then kena locked?  
+		if !isFetched {
 			fetched_mu.RLock()
-			defer fetched_mu.RUnlock()
-			fetched[url] = true
+			fetched[u] = true
+			fetched_mu.RUnlock()
+			atomic.AddInt64(&fetch_cnt, 1)		
 			go Crawl(u, depth-1)
-		}
+		} 
+		
 	}
 }
 
